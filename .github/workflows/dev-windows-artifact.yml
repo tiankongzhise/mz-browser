@@ -1,0 +1,65 @@
+name: dev-windows-artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to build and package as a test artifact
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-2025
+    env:
+      ENV_NAME: production
+    steps:
+      - name: Checkout requested ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: node build.cjs
+
+      - name: Build Windows executable
+        working-directory: src-tauri
+        run: cargo build --release --locked --features production
+
+      - name: Collect executable artifact
+        shell: powershell
+        run: |
+          $artifactDir = "artifact/mz-browser-dev-windows-x64"
+          New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+          Copy-Item "src-tauri/target/release/mz-browser.exe" $artifactDir
+          Get-ChildItem "src-tauri/target/release/*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $artifactDir
+          Copy-Item "README.md" $artifactDir -ErrorAction SilentlyContinue
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mz-browser-dev-windows-x64-${{ github.run_id }}
+          path: artifact/mz-browser-dev-windows-x64
+          if-no-files-found: error
+          retention-days: 14
