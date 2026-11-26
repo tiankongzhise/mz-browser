@@ -32,6 +32,7 @@
 ## 验证约定
 
 - 前端：`pnpm typecheck`、`pnpm test`、`pnpm lint`、`node build.cjs` 可作为云端验证；本地运行前应确认依赖已安装且成本可接受。
+- 测试云端 exe/安装包前，先检查是否仍有旧 Artifact 或旧版本实例运行（重点看进程路径是否位于历史 `mz-browser-artifact-*` 目录）。若有，先结束旧实例再测试；应用单实例机制会让后启动实例直接退出，避免把这个问题误判成新产物无法启动。
 - Rust：云端 CI 使用 `cargo check --locked`、`cargo test --locked --lib`、`cargo test --locked -p runtime`、`cargo test --locked -p business`。
 - 不要为了通过本地或云端检查而关闭安全策略、提交密钥、绕过 branch protection 或修改供应链保护配置。
 
