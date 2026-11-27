@@ -87,7 +87,7 @@ jobs:
           $title = "MZ指纹浏览器 $version"
           $notes = git tag -l $env:RELEASE_TAG --format='%(contents)'
           if ([string]::IsNullOrWhiteSpace($notes)) {
-            $notes = "个人 fork 测试发布：`$env:RELEASE_TAG`"
+            $notes = "个人 fork 测试发布：$env:RELEASE_TAG"
           }
           $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
           Set-Content -LiteralPath $notesFile -Value $notes -Encoding utf8
