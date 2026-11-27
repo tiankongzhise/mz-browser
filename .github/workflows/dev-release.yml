@@ -85,7 +85,7 @@ jobs:
         run: |
           $version = $env:RELEASE_TAG.TrimStart('v')
           $title = "MZ指纹浏览器 $version"
-          $notes = git tag -l $env:RELEASE_TAG --format='%(contents)'
+          $notes = (git tag -l $env:RELEASE_TAG --format='%(contents)') -join "`n"
           if ([string]::IsNullOrWhiteSpace($notes)) {
             $notes = "个人 fork 测试发布：$env:RELEASE_TAG"
           }
@@ -99,8 +99,16 @@ jobs:
             if (-not $existing.draft) {
               throw "Release $env:RELEASE_TAG is already published; refusing to overwrite it automatically"
             }
-            gh release edit $env:RELEASE_TAG --draft --title "$title" --notes-file "$notesFile"
             $releaseId = $existing.id
+            $releasePayload = @{
+              draft = $true
+              prerelease = $true
+              name = $title
+              body = $notes
+            } | ConvertTo-Json -Depth 5
+            $payloadFile = Join-Path $env:RUNNER_TEMP "release-payload.json"
+            Set-Content -LiteralPath $payloadFile -Value $releasePayload -Encoding utf8
+            gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/$releaseId" --input "$payloadFile" | Out-Null
           } else {
             gh release create $env:RELEASE_TAG --draft --prerelease --title "$title" --notes-file "$notesFile"
             $createdReleases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
@@ -135,6 +143,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
         run: |
           $version = $env:RELEASE_TAG.TrimStart('v')
           $exeCandidates = @(
@@ -164,11 +173,23 @@ jobs:
           [System.IO.File]::WriteAllText((Join-Path $stageDir "README.txt"), $readme, [System.Text.UTF8Encoding]::new($true))
 
           Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $zipPath -Force
-          gh release upload $env:RELEASE_TAG $zipPath --clobber
+
+          $assetName = [System.IO.Path]::GetFileName($zipPath)
+          $assets = gh api "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets?per_page=100" | ConvertFrom-Json
+          $existingAsset = $assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
+          if ($null -ne $existingAsset) {
+            gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/assets/$($existingAsset.id)" | Out-Null
+          }
+          gh api -X POST "https://uploads.github.com/repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID/assets?name=$assetName" `
+            -H "Content-Type: application/zip" `
+            --input "$zipPath" | Out-Null
 
       - name: Publish draft release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
         run: |
-          gh release edit $env:RELEASE_TAG --draft=false
+          $payloadFile = Join-Path $env:RUNNER_TEMP "release-publish.json"
+          Set-Content -LiteralPath $payloadFile -Value '{"draft":false}' -Encoding ascii
+          gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID" --input "$payloadFile" | Out-Null
