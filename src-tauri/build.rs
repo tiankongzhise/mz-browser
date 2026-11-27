@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=MZ_WEBVIEW_MODE");
+    println!("cargo:rerun-if-env-changed=MZ_ALLOW_UNSIGNED_UPDATER_ARTIFACTS");
     println!("cargo:rerun-if-changed=tauri.conf.json");
 
     let webview_mode =
@@ -90,9 +91,11 @@ fn validate_selected_tauri_config(mode: &str) {
         config.bundle.windows.webview_install_mode.kind, expected_install_mode,
         "selected Tauri config does not match MZ_WEBVIEW_MODE '{mode}'"
     );
+    let unsigned_updater_artifacts_allowed =
+        env::var("MZ_ALLOW_UNSIGNED_UPDATER_ARTIFACTS").as_deref() == Ok("1");
     assert!(
-        config.bundle.create_updater_artifacts,
-        "selected Tauri config must create signed updater artifacts"
+        config.bundle.create_updater_artifacts || unsigned_updater_artifacts_allowed,
+        "selected Tauri config must create signed updater artifacts unless MZ_ALLOW_UNSIGNED_UPDATER_ARTIFACTS=1"
     );
 
     let endpoint = config
