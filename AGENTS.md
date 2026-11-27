@@ -29,6 +29,7 @@
 - 本地可以做源码编辑、ESLint/Prettier/TypeScript 等前端轻量检查。
 - **本地默认禁止执行 `cargo check`、`cargo test`、`cargo build`、`tauri build` 等会产生 Rust 编译中间体的命令；Rust 编译、检查和测试全部交给 GitHub Actions。** 只有用户明确针对当次任务授权时才能例外。
 - 需要测试 exe/安装包时：只提交源码并 `git push` 到 GitHub，由云端 Windows runner 构建，再从 Actions Artifact 或 GitHub Release 下载产物验证。
+- 需要按需验证 Rust 编译或测试时，优先使用个人仓库 `dev-rust-debug` workflow，输入目标分支/commit 和 `check`、`lib`、`runtime`、`business` 或 `all` 套件；不要在本地执行 cargo 编译类命令。
 
 ## 验证约定
 

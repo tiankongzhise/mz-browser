@@ -1,0 +1,88 @@
+name: dev-rust-debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to validate
+        required: true
+        default: main
+      suite:
+        description: Rust validation suite
+        required: true
+        default: check
+        type: choice
+        options:
+          - check
+          - lib
+          - runtime
+          - business
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-check:
+    if: ${{ inputs.suite == 'check' || inputs.suite == 'all' }}
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: dev-rust-check
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --locked
+
+  cargo-test-lib:
+    if: ${{ inputs.suite == 'lib' || inputs.suite == 'all' }}
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: dev-rust-lib
+      - name: cargo test lib
+        working-directory: src-tauri
+        run: cargo test --locked --lib
+
+  cargo-test-runtime:
+    if: ${{ inputs.suite == 'runtime' || inputs.suite == 'all' }}
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: dev-rust-runtime
+      - name: cargo test runtime
+        working-directory: src-tauri
+        run: cargo test --locked -p runtime
+
+  cargo-test-business:
+    if: ${{ inputs.suite == 'business' || inputs.suite == 'all' }}
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: dev-rust-business
+      - name: cargo test business
+        working-directory: src-tauri
+        run: cargo test --locked -p business
