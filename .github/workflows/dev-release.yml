@@ -101,6 +101,7 @@ jobs:
             }
             $releaseId = $existing.id
             $releasePayload = @{
+              tag_name = $env:RELEASE_TAG
               draft = $true
               prerelease = $true
               name = $title
@@ -110,9 +111,16 @@ jobs:
             Set-Content -LiteralPath $payloadFile -Value $releasePayload -Encoding utf8
             gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/$releaseId" --input "$payloadFile" | Out-Null
           } else {
-            gh release create $env:RELEASE_TAG --draft --prerelease --title "$title" --notes-file "$notesFile"
-            $createdReleases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
-            $created = $createdReleases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG } | Select-Object -First 1
+            $createPayload = @{
+              tag_name = $env:RELEASE_TAG
+              draft = $true
+              prerelease = $true
+              name = $title
+              body = $notes
+            } | ConvertTo-Json -Depth 5
+            $payloadFile = Join-Path $env:RUNNER_TEMP "release-create-payload.json"
+            Set-Content -LiteralPath $payloadFile -Value $createPayload -Encoding utf8
+            $created = gh api -X POST "repos/$env:GITHUB_REPOSITORY/releases" --input "$payloadFile" | ConvertFrom-Json
             $releaseId = $created.id
           }
 
