@@ -92,15 +92,8 @@ jobs:
           $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
           Set-Content -LiteralPath $notesFile -Value $notes -Encoding utf8
 
-          $existing = $null
-          try {
-            $existingJson = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" 2>$null
-            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($existingJson)) {
-              $existing = $existingJson | ConvertFrom-Json
-            }
-          } catch {
-            $existing = $null
-          }
+          $releases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
+          $existing = $releases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG } | Select-Object -First 1
 
           if ($null -ne $existing) {
             if (-not $existing.draft) {
@@ -110,7 +103,9 @@ jobs:
             $releaseId = $existing.id
           } else {
             gh release create $env:RELEASE_TAG --draft --prerelease --title "$title" --notes-file "$notesFile"
-            $releaseId = (gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json).id
+            $createdReleases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
+            $created = $createdReleases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG } | Select-Object -First 1
+            $releaseId = $created.id
           }
 
           if (-not $releaseId) {
