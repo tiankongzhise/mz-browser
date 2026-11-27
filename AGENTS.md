@@ -26,7 +26,8 @@
 
 - **不要在本地执行 `cargo build --release`、`tauri build` 或完整 Windows 安装包构建。**
 - 不在本地生成或保留庞大的 Rust release 构建中间产物；`src-tauri/target/` 已由 Git ignore，必要时应清理而不是提交。
-- 本地可以做源码编辑、ESLint/Prettier/TypeScript 等前端轻量检查，以及必要的 `cargo check`；耗时的完整 Rust 测试和 release 构建优先交给 GitHub Actions。
+- 本地可以做源码编辑、ESLint/Prettier/TypeScript 等前端轻量检查。
+- **本地默认禁止执行 `cargo check`、`cargo test`、`cargo build`、`tauri build` 等会产生 Rust 编译中间体的命令；Rust 编译、检查和测试全部交给 GitHub Actions。** 只有用户明确针对当次任务授权时才能例外。
 - 需要测试 exe/安装包时：只提交源码并 `git push` 到 GitHub，由云端 Windows runner 构建，再从 Actions Artifact 或 GitHub Release 下载产物验证。
 
 ## 验证约定
