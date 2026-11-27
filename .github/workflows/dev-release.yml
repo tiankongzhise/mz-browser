@@ -1,0 +1,179 @@
+name: dev-release
+
+# 个人仓库专用的无 updater 签名发布流程：Windows x64 安装版 + 便携版。
+# 不上传 .sig / latest.json，也不依赖 TAURI_PRIVATE_KEY 或 WebView2 fixed-runtime Secrets。
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Annotated release tag to build, for example v0.0.4-tk.1
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows-release:
+    runs-on: windows-2025
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      ENV_NAME: production
+      MZ_WEBVIEW_MODE: embedBootstrapper
+    steps:
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Invalid release tag: $env:RELEASE_TAG"
+          }
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          key: dev-release-windows-x64
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare unsigned personal-release config
+        shell: pwsh
+        run: |
+          node deploy/prepare-tauri-config.mjs embedBootstrapper x86_64-pc-windows-msvc
+          node deploy/prepare-version.mjs
+
+          $configPath = "src-tauri/tauri.conf.json"
+          $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          $config.bundle.createUpdaterArtifacts = $false
+          $config.plugins.updater.endpoints = @(
+            "https://github.com/tiankongzhise/mz-browser/releases/latest/download/latest.json"
+          )
+          $config | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $configPath -Encoding utf8
+
+      - name: Create or refresh draft release
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          $title = "MZ指纹浏览器 $version"
+          $notes = git tag -l $env:RELEASE_TAG --format='%(contents)'
+          if ([string]::IsNullOrWhiteSpace($notes)) {
+            $notes = "个人 fork 测试发布：`$env:RELEASE_TAG`"
+          }
+          $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          Set-Content -LiteralPath $notesFile -Value $notes -Encoding utf8
+
+          $existing = $null
+          try {
+            $existingJson = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" 2>$null
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($existingJson)) {
+              $existing = $existingJson | ConvertFrom-Json
+            }
+          } catch {
+            $existing = $null
+          }
+
+          if ($null -ne $existing) {
+            if (-not $existing.draft) {
+              throw "Release $env:RELEASE_TAG is already published; refusing to overwrite it automatically"
+            }
+            gh release edit $env:RELEASE_TAG --draft --title "$title" --notes-file "$notesFile"
+            $releaseId = $existing.id
+          } else {
+            gh release create $env:RELEASE_TAG --draft --prerelease --title "$title" --notes-file "$notesFile"
+            $releaseId = (gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json).id
+          }
+
+          if (-not $releaseId) {
+            throw "Failed to resolve draft release id for $env:RELEASE_TAG"
+          }
+          "release_id=$releaseId" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Build Windows x64 installer
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENV_NAME: production
+          MZ_WEBVIEW_MODE: embedBootstrapper
+        with:
+          projectPath: .
+          releaseId: ${{ steps.release.outputs.release_id }}
+          tagName: ${{ inputs.release_tag }}
+          releaseDraft: true
+          prerelease: true
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          uploadWorkflowArtifacts: true
+          releaseAssetNamePattern: MZ-Browser_[version]_[arch][setup][ext]
+          args: --features production --target x86_64-pc-windows-msvc
+
+      - name: Package portable zip
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          $exeCandidates = @(
+            "src-tauri/target/x86_64-pc-windows-msvc/release/mz-browser.exe",
+            "src-tauri/target/release/mz-browser.exe"
+          )
+          $exePath = $exeCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $exePath) {
+            throw "mz-browser.exe was not found in the expected release target directories"
+          }
+
+          $stageDir = Join-Path $env:RUNNER_TEMP "mz-portable-stage"
+          $zipPath = Join-Path $env:RUNNER_TEMP "MZ-Browser-portable-$version.zip"
+          New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+          Copy-Item -LiteralPath $exePath -Destination (Join-Path $stageDir "mz-browser.exe")
+          New-Item -ItemType File -Path (Join-Path $stageDir "portable.flag") -Force | Out-Null
+
+          $readme = (
+            "MZ指纹浏览器 便携版 $version",
+            "",
+            "解压到任意可写的目录，运行 mz-browser.exe 即可。",
+            "所有数据（数据库、配置、缓存、内核、日志）都保存在这个目录里，删除整个目录就等于彻底清理。",
+            "请不要把它放在 Program Files 之类需要管理员权限的目录里。",
+            "",
+            "这是个人 fork 的无 updater 签名测试发布；便携版不包含自动更新能力。"
+          ) -join "`n"
+          [System.IO.File]::WriteAllText((Join-Path $stageDir "README.txt"), $readme, [System.Text.UTF8Encoding]::new($true))
+
+          Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $zipPath -Force
+          gh release upload $env:RELEASE_TAG $zipPath --clobber
+
+      - name: Publish draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit $env:RELEASE_TAG --draft=false
