@@ -131,7 +131,7 @@ jobs:
           "release_id=$releaseId" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Install Tauri CLI
-        run: npm install -g @tauri-apps/cli@2.12.6
+        run: npm install -g @tauri-apps/cli@2.9.6
 
       - name: Build Windows x64 installer
         shell: pwsh
